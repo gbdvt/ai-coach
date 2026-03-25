@@ -7,6 +7,7 @@ const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/log", label: "Log" },
   { href: "/history", label: "History" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function AppNav() {
@@ -23,7 +24,9 @@ export function AppNav() {
             const active =
               l.href === "/log"
                 ? pathname.startsWith("/log")
-                : pathname === l.href;
+                : l.href === "/settings"
+                  ? pathname.startsWith("/settings")
+                  : pathname === l.href;
             return (
               <Link
                 key={l.href}

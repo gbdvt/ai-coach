@@ -8,10 +8,12 @@ AI coaching is intentionally out of scope for v1.
 
 ## Features
 
-- `daily_logs` table with open RLS for anon access (local / single-user only)
-- Dashboard: today summary, macro progress, 7-day charts (when enough data), streak + 14-day strip, recent logs
-- Daily log form: create or upsert by date
-- History: filters (7 / 30 / all), summary stats, tap a row to edit
+- **Quick log**: natural-language lines (weight, meals with kcal/protein, workouts, alcohol, binge, notes) stored in `log_events` and merged into `daily_logs` for charts/history
+- **Targets**: defaults from `coach_settings` (or code fallbacks); edit under **Settings** — not re-entered every day
+- `daily_logs` + `log_events` + `coach_settings` with open RLS (local / single-user only)
+- Dashboard: quick capture for today, insights, macro progress, charts, streak strip, recent logs
+- **Log** page: quick log + feed + day summary; **Manual edit** (`/log/advanced`) for structured overrides
+- History: filters, calendar strip, summary stats
 
 ## Prerequisites
 
@@ -21,7 +23,7 @@ AI coaching is intentionally out of scope for v1.
 ## 1. Supabase setup
 
 1. Create a project in the Supabase dashboard.
-2. Open **SQL Editor** and run `supabase/schema.sql` (it drops `daily_logs_user_id_fkey` when the table already exists, so the app’s fixed tenant UUID does not need a row in `auth.users`).
+2. Open **SQL Editor** and run `supabase/schema.sql` (creates/updates `daily_logs`, `log_events`, `coach_settings`; drops `daily_logs_user_id_fkey` when the table already exists).
 3. If you still see **`daily_logs_user_id_fkey`** errors, run `supabase/fix_user_id_foreign_key.sql` once, or manually:  
    `alter table public.daily_logs drop constraint if exists daily_logs_user_id_fkey;`
 4. **Security:** current policies allow anyone with your anon key to read/write all rows. Use this only for private development or behind a trusted network.
@@ -53,12 +55,15 @@ npm start
 
 ## Project structure (high level)
 
-- `src/app/(app)/dashboard` — main dashboard
-- `src/app/(app)/log` — daily log form (`?date=YYYY-MM-DD`)
-- `src/app/(app)/history` — history (`?range=7|30|all`)
+- `src/app/(app)/dashboard` — dashboard + today quick capture
+- `src/app/(app)/log` — quick log hub (`?date=YYYY-MM-DD`)
+- `src/app/(app)/log/advanced` — manual day edit (structured fields)
+- `src/app/(app)/settings` — default calorie / protein targets
+- `src/app/(app)/history` — history (`?range=…`)
+- `src/lib/quickLogParser.ts` — rule-based parser for quick log lines
+- `src/lib/syncDailyLogFromEvents.ts` — merge events → `daily_logs` row
 - `src/lib/supabase/server.ts` — server Supabase client (anon key)
 - `src/lib/tenant.ts` — single-tenant `user_id` constant
-- `src/components/*` — reusable UI, charts, and form
 - `supabase/schema.sql` — database DDL + RLS
 
 ## Data model

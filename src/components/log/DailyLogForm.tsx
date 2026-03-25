@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
@@ -9,6 +10,9 @@ import type { DailyLog } from "@/types/daily-log";
 type Props = {
   initial: DailyLog | null;
   selectedDate: string;
+  /** Shown read-only; saved targets come from Settings via server action */
+  defaultCalorieTarget: number;
+  defaultProteinTargetG: number;
 };
 
 function numOrNull(s: string): number | null {
@@ -24,16 +28,19 @@ function intOrNull(s: string): number | null {
   return Math.round(n);
 }
 
-export function DailyLogForm({ initial, selectedDate }: Props) {
+export function DailyLogForm({
+  initial,
+  selectedDate,
+  defaultCalorieTarget,
+  defaultProteinTargetG,
+}: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   const defaults = useMemo(
     () => ({
       morning_weight_kg: initial?.morning_weight_kg?.toString() ?? "",
-      calorie_target: initial?.calorie_target?.toString() ?? "",
       calories_actual: initial?.calories_actual?.toString() ?? "",
-      protein_target_g: initial?.protein_target_g?.toString() ?? "",
       protein_actual_g: initial?.protein_actual_g?.toString() ?? "",
       training_type: initial?.training_type ?? "",
       training_duration_min: initial?.training_duration_min?.toString() ?? "",
@@ -58,9 +65,7 @@ export function DailyLogForm({ initial, selectedDate }: Props) {
       const res = await upsertDailyLog({
         date: selectedDate,
         morning_weight_kg: numOrNull(form.morning_weight_kg),
-        calorie_target: intOrNull(form.calorie_target),
         calories_actual: intOrNull(form.calories_actual),
-        protein_target_g: intOrNull(form.protein_target_g),
         protein_actual_g: intOrNull(form.protein_actual_g),
         training_type: form.training_type.trim() || null,
         training_duration_min: intOrNull(form.training_duration_min),
@@ -75,7 +80,7 @@ export function DailyLogForm({ initial, selectedDate }: Props) {
         toast.error(res.error);
         return;
       }
-      toast.success("Day logged ✅");
+      toast.success("Day saved ✅");
       router.refresh();
     });
   }
@@ -85,18 +90,18 @@ export function DailyLogForm({ initial, selectedDate }: Props) {
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
+      <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-400">
+        <span className="font-medium text-zinc-300">Macro targets</span> come from{" "}
+        <Link href="/settings" className="text-emerald-400 hover:underline">
+          Settings
+        </Link>
+        : {defaultCalorieTarget} kcal · {defaultProteinTargetG} g protein (applied on save).
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block space-y-1.5 sm:col-span-2">
+        <label className="block space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">Date</span>
-          <input
-            type="date"
-            className={field}
-            value={selectedDate}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v) router.push(`/log?date=${v}`);
-            }}
-          />
+          <input type="date" className={field} value={selectedDate} readOnly aria-readonly />
         </label>
 
         <label className="block space-y-1.5">
@@ -122,32 +127,12 @@ export function DailyLogForm({ initial, selectedDate }: Props) {
         </label>
 
         <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">Calorie target</span>
-          <input
-            inputMode="numeric"
-            className={field}
-            value={form.calorie_target}
-            onChange={(e) => update("calorie_target", e.target.value)}
-          />
-        </label>
-
-        <label className="block space-y-1.5">
           <span className="text-xs font-medium text-zinc-400">Calories (actual)</span>
           <input
             inputMode="numeric"
             className={field}
             value={form.calories_actual}
             onChange={(e) => update("calories_actual", e.target.value)}
-          />
-        </label>
-
-        <label className="block space-y-1.5">
-          <span className="text-xs font-medium text-zinc-400">Protein target (g)</span>
-          <input
-            inputMode="numeric"
-            className={field}
-            value={form.protein_target_g}
-            onChange={(e) => update("protein_target_g", e.target.value)}
           />
         </label>
 
@@ -165,7 +150,7 @@ export function DailyLogForm({ initial, selectedDate }: Props) {
           <span className="text-xs font-medium text-zinc-400">Training type</span>
           <input
             className={field}
-            placeholder="Hyrox, run, lift, rest…"
+            placeholder="Hyrox, run, lift…"
             value={form.training_type}
             onChange={(e) => update("training_type", e.target.value)}
           />
@@ -227,7 +212,7 @@ export function DailyLogForm({ initial, selectedDate }: Props) {
         disabled={pending}
         className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-3 text-sm font-semibold text-zinc-950 shadow-lg shadow-emerald-500/10 transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {pending ? "Saving…" : "Save log"}
+        {pending ? "Saving…" : "Save manual overrides"}
       </button>
     </form>
   );

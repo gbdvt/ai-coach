@@ -7,9 +7,12 @@ import { InsightCard } from "@/components/dashboard/InsightCard";
 import { ProgressBar } from "@/components/dashboard/ProgressBar";
 import { TodayProgressShell } from "@/components/dashboard/TodayProgressShell";
 import { LogListCard } from "@/components/history/LogListCard";
+import { LogDayPanel } from "@/components/quicklog/LogDayPanel";
 import { DashboardCard } from "@/components/ui/DashboardCard";
 import { GuidanceEmpty } from "@/components/ui/GuidanceEmpty";
 import { StatPill } from "@/components/ui/StatPill";
+import { fetchTargets } from "@/lib/coachSettings";
+import { toLogEventRow } from "@/lib/mapLogEvent";
 import {
   buildMacroChartRows,
   buildWeightChartRows,
@@ -41,34 +44,47 @@ export default async function DashboardPage() {
   const weekStart = addDays(today, -6);
   const fetchStart = addDays(today, -13);
 
-  const [{ data: todayLog, error: todayErr }, { data: twoWeekRows, error: weekErr }, { data: recentRows }, { data: dateOnlyRows }] =
-    await Promise.all([
-      supabase
-        .from("daily_logs")
-        .select("*")
-        .eq("user_id", SINGLE_TENANT_USER_ID)
-        .eq("date", today)
-        .maybeSingle(),
-      supabase
-        .from("daily_logs")
-        .select("*")
-        .eq("user_id", SINGLE_TENANT_USER_ID)
-        .gte("date", fetchStart)
-        .lte("date", today)
-        .order("date", { ascending: true }),
-      supabase
-        .from("daily_logs")
-        .select("*")
-        .eq("user_id", SINGLE_TENANT_USER_ID)
-        .order("date", { ascending: false })
-        .limit(5),
-      supabase
-        .from("daily_logs")
-        .select("date")
-        .eq("user_id", SINGLE_TENANT_USER_ID)
-        .order("date", { ascending: false })
-        .limit(400),
-    ]);
+  const [
+    { data: todayLog, error: todayErr },
+    { data: twoWeekRows, error: weekErr },
+    { data: recentRows },
+    { data: dateOnlyRows },
+    { data: rawTodayEvents, error: eventsErr },
+  ] = await Promise.all([
+    supabase
+      .from("daily_logs")
+      .select("*")
+      .eq("user_id", SINGLE_TENANT_USER_ID)
+      .eq("date", today)
+      .maybeSingle(),
+    supabase
+      .from("daily_logs")
+      .select("*")
+      .eq("user_id", SINGLE_TENANT_USER_ID)
+      .gte("date", fetchStart)
+      .lte("date", today)
+      .order("date", { ascending: true }),
+    supabase
+      .from("daily_logs")
+      .select("*")
+      .eq("user_id", SINGLE_TENANT_USER_ID)
+      .order("date", { ascending: false })
+      .limit(5),
+    supabase
+      .from("daily_logs")
+      .select("date")
+      .eq("user_id", SINGLE_TENANT_USER_ID)
+      .order("date", { ascending: false })
+      .limit(400),
+    supabase
+      .from("log_events")
+      .select("*")
+      .eq("user_id", SINGLE_TENANT_USER_ID)
+      .eq("log_date", today)
+      .order("created_at", { ascending: true }),
+  ]);
+
+  const targets = await fetchTargets();
 
   if (todayErr || weekErr) {
     return (
@@ -103,6 +119,8 @@ export default async function DashboardPage() {
   }));
 
   const tlog = todayLog as DailyLog | null;
+  const todayEvents = (rawTodayEvents ?? []).map(toLogEventRow);
+
   const hasTodayProgress = Boolean(
     tlog &&
       (tlog.morning_weight_kg != null ||
@@ -152,9 +170,31 @@ export default async function DashboardPage() {
           href={`/log?date=${today}`}
           className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-md shadow-emerald-500/15 transition hover:opacity-95 active:scale-[0.98]"
         >
-          {tlog ? "Edit today" : "Log today"}
+          Full log page
         </Link>
       </div>
+
+      <DashboardCard title="Today · quick capture">
+        {eventsErr ? (
+          <p className="text-sm text-amber-200/90">
+            Quick log unavailable until you run the latest{" "}
+            <code className="rounded bg-black/30 px-1">supabase/schema.sql</code> (adds{" "}
+            <code className="rounded bg-black/30 px-1">log_events</code>).{" "}
+            <Link href="/log/advanced" className="text-emerald-400 underline">
+              Manual edit
+            </Link>
+          </p>
+        ) : (
+          <LogDayPanel
+            variant="dashboard"
+            logDate={today}
+            events={todayEvents}
+            dailyLog={tlog}
+            calorieTarget={targets.calorieTarget}
+            proteinTargetG={targets.proteinTargetG}
+          />
+        )}
+      </DashboardCard>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <InsightCard
@@ -209,14 +249,14 @@ export default async function DashboardPage() {
             <ProgressBar
               label="Calories"
               current={tlog?.calories_actual ?? null}
-              target={tlog?.calorie_target ?? null}
+              target={tlog?.calorie_target ?? targets.calorieTarget}
             />
           </DashboardCard>
           <DashboardCard title="Today · protein">
             <ProgressBar
               label="Protein"
               current={tlog?.protein_actual_g ?? null}
-              target={tlog?.protein_target_g ?? null}
+              target={tlog?.protein_target_g ?? targets.proteinTargetG}
               unit="g"
             />
           </DashboardCard>
@@ -230,7 +270,7 @@ export default async function DashboardPage() {
             {tlog?.morning_weight_kg != null ? <span className="text-lg text-zinc-500"> kg</span> : null}
           </p>
           {!tlog?.morning_weight_kg ? (
-            <p className="mt-2 text-sm text-zinc-500">Not logged yet — add it on the log page.</p>
+            <p className="mt-2 text-sm text-zinc-500">Try quick log: e.g. weight 80.2</p>
           ) : null}
         </DashboardCard>
         <DashboardCard title="Training">
