@@ -21,9 +21,10 @@ AI coaching is intentionally out of scope for v1.
 ## 1. Supabase setup
 
 1. Create a project in the Supabase dashboard.
-2. Open **SQL Editor** and run `supabase/schema.sql`.
-   - If you previously created `daily_logs` with a foreign key to `auth.users`, run the `ALTER TABLE ... DROP CONSTRAINT` comment from that file first so inserts work without a real auth user.
-3. **Security:** current policies allow anyone with your anon key to read/write all rows. Use this only for private development or behind a trusted network.
+2. Open **SQL Editor** and run `supabase/schema.sql` (it drops `daily_logs_user_id_fkey` when the table already exists, so the app’s fixed tenant UUID does not need a row in `auth.users`).
+3. If you still see **`daily_logs_user_id_fkey`** errors, run `supabase/fix_user_id_foreign_key.sql` once, or manually:  
+   `alter table public.daily_logs drop constraint if exists daily_logs_user_id_fkey;`
+4. **Security:** current policies allow anyone with your anon key to read/write all rows. Use this only for private development or behind a trusted network.
 
 ## 2. Environment variables
 

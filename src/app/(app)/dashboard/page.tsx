@@ -1,11 +1,25 @@
 import Link from "next/link";
-import { CaloriesTrendChart } from "@/components/charts/CaloriesTrendChart";
+import { CaloriesMacroChart } from "@/components/charts/CaloriesMacroChart";
+import { ProteinMacroChart } from "@/components/charts/ProteinMacroChart";
 import { WeightTrendChart } from "@/components/charts/WeightTrendChart";
 import { DayStrip } from "@/components/dashboard/DayStrip";
+import { InsightCard } from "@/components/dashboard/InsightCard";
 import { ProgressBar } from "@/components/dashboard/ProgressBar";
+import { TodayProgressShell } from "@/components/dashboard/TodayProgressShell";
 import { LogListCard } from "@/components/history/LogListCard";
 import { DashboardCard } from "@/components/ui/DashboardCard";
+import { GuidanceEmpty } from "@/components/ui/GuidanceEmpty";
 import { StatPill } from "@/components/ui/StatPill";
+import {
+  buildMacroChartRows,
+  buildWeightChartRows,
+  compareWeightWeeks,
+  logsByDate,
+  macroAdherencePercent,
+  trainingConsistencyLabel,
+  trainingDaysInLast7,
+  weightLabelTone,
+} from "@/lib/analytics";
 import { addDays, eachDateInRange, formatLocalDate } from "@/lib/dates";
 import { formatNumber } from "@/lib/format";
 import { createClient } from "@/lib/supabase/server";
@@ -25,8 +39,9 @@ export default async function DashboardPage() {
   const supabase = createClient();
   const today = formatLocalDate(new Date());
   const weekStart = addDays(today, -6);
+  const fetchStart = addDays(today, -13);
 
-  const [{ data: todayLog, error: todayErr }, { data: weekRows, error: weekErr }, { data: recentRows }, { data: dateOnlyRows }] =
+  const [{ data: todayLog, error: todayErr }, { data: twoWeekRows, error: weekErr }, { data: recentRows }, { data: dateOnlyRows }] =
     await Promise.all([
       supabase
         .from("daily_logs")
@@ -38,7 +53,7 @@ export default async function DashboardPage() {
         .from("daily_logs")
         .select("*")
         .eq("user_id", SINGLE_TENANT_USER_ID)
-        .gte("date", weekStart)
+        .gte("date", fetchStart)
         .lte("date", today)
         .order("date", { ascending: true }),
       supabase
@@ -63,35 +78,68 @@ export default async function DashboardPage() {
     );
   }
 
-  const weekLogs = (weekRows ?? []) as DailyLog[];
+  const fourteenLogs = (twoWeekRows ?? []) as DailyLog[];
+  const byDate = logsByDate(fourteenLogs);
   const recent = (recentRows ?? []) as DailyLog[];
   const logDates = new Set((dateOnlyRows ?? []).map((r) => r.date as string));
   const streak = logStreak(logDates, today);
 
-  const weightChartData = weekLogs
-    .filter((l) => l.morning_weight_kg != null)
-    .map((l) => ({
-      date: l.date,
-      label: shortWeekday(l.date),
-      weight: Number(l.morning_weight_kg),
-    }));
+  const weightWeeks = compareWeightWeeks(byDate, today);
+  const kcalAdherence = macroAdherencePercent(byDate, today, "calories");
+  const protAdherence = macroAdherencePercent(byDate, today, "protein");
+  const trained7 = trainingDaysInLast7(byDate, today);
+  const trainLabel = trainingConsistencyLabel(trained7);
 
-  const calorieChartData = weekLogs
-    .filter((l) => l.calories_actual != null)
-    .map((l) => ({
-      date: l.date,
-      label: shortWeekday(l.date),
-      calories: l.calories_actual as number,
-    }));
+  const weightRows = buildWeightChartRows(byDate, weekStart, today, shortWeekday);
+  const calorieRows = buildMacroChartRows(byDate, weekStart, today, shortWeekday, "calories");
+  const proteinRows = buildMacroChartRows(byDate, weekStart, today, shortWeekday, "protein");
 
   const stripStart = addDays(today, -13);
   const stripDays = eachDateInRange(stripStart, today).map((iso) => ({
     date: iso,
     label: shortWeekday(iso).slice(0, 1),
     logged: logDates.has(iso),
+    isToday: iso === today,
   }));
 
   const tlog = todayLog as DailyLog | null;
+  const hasTodayProgress = Boolean(
+    tlog &&
+      (tlog.morning_weight_kg != null ||
+        tlog.calories_actual != null ||
+        tlog.protein_actual_g != null ||
+        (tlog.training_type?.trim() ?? "") !== "" ||
+        (tlog.training_duration_min ?? 0) > 0),
+  );
+
+  const weightInsightValue =
+    weightWeeks.currentAvg != null
+      ? `${formatNumber(weightWeeks.currentAvg, { maxFractionDigits: 1 })} kg`
+      : "—";
+  const weightInsightSub =
+    weightWeeks.deltaKg != null
+      ? `${weightWeeks.deltaKg <= 0 ? "" : "+"}${formatNumber(weightWeeks.deltaKg, { maxFractionDigits: 1 })} kg vs prior week`
+      : weightWeeks.currentDaysWithWeight < 2 && weightWeeks.prevDaysWithWeight < 2
+        ? "Log at least 2 days in each week to compare."
+        : "Your progress will appear here.";
+
+  const kcalInsightValue =
+    kcalAdherence.percent != null ? `${kcalAdherence.percent}%` : "—";
+  const kcalInsightSub =
+    kcalAdherence.percent != null && kcalAdherence.avgActual != null && kcalAdherence.avgTarget != null
+      ? `Avg ${Math.round(kcalAdherence.avgActual)} / ${Math.round(kcalAdherence.avgTarget)} kcal (${kcalAdherence.daysCounted}d)`
+      : "Log calorie target and actuals to see adherence.";
+
+  const protInsightValue =
+    protAdherence.percent != null ? `${protAdherence.percent}%` : "—";
+  const protInsightSub =
+    protAdherence.percent != null && protAdherence.avgActual != null && protAdherence.avgTarget != null
+      ? `Avg ${Math.round(protAdherence.avgActual)} / ${Math.round(protAdherence.avgTarget)} g (${protAdherence.daysCounted}d)`
+      : "Log protein target and actuals to see adherence.";
+
+  const weightChartHasData = weightRows.some((r) => r.weight != null);
+  const macroPoints = (rows: typeof calorieRows) =>
+    rows.filter((r) => r.actual != null || r.target != null).length;
 
   return (
     <div className="space-y-6">
@@ -102,10 +150,41 @@ export default async function DashboardPage() {
         </div>
         <Link
           href={`/log?date=${today}`}
-          className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-md shadow-emerald-500/15"
+          className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-md shadow-emerald-500/15 transition hover:opacity-95 active:scale-[0.98]"
         >
           {tlog ? "Edit today" : "Log today"}
         </Link>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <InsightCard
+          title="Weight trend"
+          value={weightInsightValue}
+          sub={weightInsightSub}
+          badge={weightWeeks.label ?? undefined}
+          badgeTone={weightLabelTone(weightWeeks.label)}
+          animationClass="animate-fade-in"
+        />
+        <InsightCard
+          title="Calorie adherence (7d)"
+          value={kcalInsightValue}
+          sub={kcalInsightSub}
+          animationClass="animate-fade-in-delay"
+        />
+        <InsightCard
+          title="Protein adherence (7d)"
+          value={protInsightValue}
+          sub={protInsightSub}
+          animationClass="animate-fade-in"
+        />
+        <InsightCard
+          title="Training (7d)"
+          value={`${trained7} / 7 days`}
+          sub="Sessions logged this week"
+          badge={trainLabel}
+          badgeTone={trainLabel === "consistent" ? "positive" : "warn"}
+          animationClass="animate-fade-in-delay"
+        />
       </div>
 
       <DashboardCard title="Streak & consistency">
@@ -124,23 +203,25 @@ export default async function DashboardPage() {
         </div>
       </DashboardCard>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DashboardCard title="Today · calories">
-          <ProgressBar
-            label="Calories"
-            current={tlog?.calories_actual ?? null}
-            target={tlog?.calorie_target ?? null}
-          />
-        </DashboardCard>
-        <DashboardCard title="Today · protein">
-          <ProgressBar
-            label="Protein"
-            current={tlog?.protein_actual_g ?? null}
-            target={tlog?.protein_target_g ?? null}
-            unit="g"
-          />
-        </DashboardCard>
-      </div>
+      <TodayProgressShell isToday hasAnyProgress={hasTodayProgress}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <DashboardCard title="Today · calories">
+            <ProgressBar
+              label="Calories"
+              current={tlog?.calories_actual ?? null}
+              target={tlog?.calorie_target ?? null}
+            />
+          </DashboardCard>
+          <DashboardCard title="Today · protein">
+            <ProgressBar
+              label="Protein"
+              current={tlog?.protein_actual_g ?? null}
+              target={tlog?.protein_target_g ?? null}
+              unit="g"
+            />
+          </DashboardCard>
+        </div>
+      </TodayProgressShell>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <DashboardCard title="Morning weight">
@@ -149,7 +230,7 @@ export default async function DashboardPage() {
             {tlog?.morning_weight_kg != null ? <span className="text-lg text-zinc-500"> kg</span> : null}
           </p>
           {!tlog?.morning_weight_kg ? (
-            <p className="mt-2 text-sm text-zinc-500">Not logged yet.</p>
+            <p className="mt-2 text-sm text-zinc-500">Not logged yet — add it on the log page.</p>
           ) : null}
         </DashboardCard>
         <DashboardCard title="Training">
@@ -173,23 +254,41 @@ export default async function DashboardPage() {
         </DashboardCard>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DashboardCard title="7-day weight">
-          {weightChartData.length >= 2 ? (
-            <WeightTrendChart data={weightChartData} />
+      <div className="grid gap-4 xl:grid-cols-3">
+        <DashboardCard title="Weight (7d)">
+          {weightChartHasData ? (
+            <WeightTrendChart data={weightRows} />
           ) : (
-            <p className="py-8 text-center text-sm text-zinc-500">
-              Log weight on at least two days this week to see the trend.
-            </p>
+            <GuidanceEmpty
+              lines={[
+                "Log at least 2 days to see trends.",
+                "Your progress will appear here.",
+              ]}
+            />
           )}
         </DashboardCard>
-        <DashboardCard title="7-day calories">
-          {calorieChartData.length >= 2 ? (
-            <CaloriesTrendChart data={calorieChartData} />
+        <DashboardCard title="Calories (7d)">
+          {macroPoints(calorieRows) >= 1 ? (
+            <CaloriesMacroChart data={calorieRows} allowSparse />
           ) : (
-            <p className="py-8 text-center text-sm text-zinc-500">
-              Log calories on at least two days this week to see the chart.
-            </p>
+            <GuidanceEmpty
+              lines={[
+                "Log targets and actual calories across the week.",
+                "Charts stay clean and easy to read on mobile.",
+              ]}
+            />
+          )}
+        </DashboardCard>
+        <DashboardCard title="Protein (7d)">
+          {macroPoints(proteinRows) >= 1 ? (
+            <ProteinMacroChart data={proteinRows} allowSparse />
+          ) : (
+            <GuidanceEmpty
+              lines={[
+                "Log protein targets and actuals to see bars vs line.",
+                "Small daily entries add up fast.",
+              ]}
+            />
           )}
         </DashboardCard>
       </div>
@@ -203,23 +302,20 @@ export default async function DashboardPage() {
         }
       >
         {recent.length === 0 ? (
-          <p className="text-sm text-zinc-500">No logs yet. Start with today.</p>
+          <GuidanceEmpty
+            title="No entries yet"
+            lines={["Start with today — your dashboard will light up.", "Log at least 2 days to see trends."]}
+          />
         ) : (
           <ul className="space-y-3">
             {recent.map((log) => (
               <li key={log.id}>
-                <LogListCard log={log} />
+                <LogListCard log={log} isToday={log.date === today} />
               </li>
             ))}
           </ul>
         )}
       </DashboardCard>
-
-      {weekLogs.length < 3 ? (
-        <p className="text-center text-xs text-zinc-600">
-          Tip: logging most days this week makes trends much more useful.
-        </p>
-      ) : null}
     </div>
   );
 }

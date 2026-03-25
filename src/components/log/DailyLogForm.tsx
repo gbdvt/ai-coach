@@ -75,7 +75,7 @@ export function DailyLogForm({ initial, selectedDate }: Props) {
         toast.error(res.error);
         return;
       }
-      toast.success("Log saved");
+      toast.success("Day logged ✅");
       router.refresh();
     });
   }

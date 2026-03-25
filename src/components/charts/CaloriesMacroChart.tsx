@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bar,
   CartesianGrid,
   ComposedChart,
   Legend,
@@ -11,33 +12,35 @@ import {
   YAxis,
 } from "recharts";
 
-export type WeightChartRow = {
+export type MacroChartRow = {
   date: string;
   label: string;
-  weight: number | null;
-  ma7: number | null;
+  actual: number | null;
+  target: number | null;
 };
 
 type Props = {
-  data: WeightChartRow[];
+  data: MacroChartRow[];
+  /** When true, show chart if any day has actual or target (not requiring 2+ points). */
+  allowSparse?: boolean;
 };
 
-/** Daily weight + optional 7-day moving average (sparse-friendly). */
-export function WeightTrendChart({ data }: Props) {
+export function CaloriesMacroChart({ data, allowSparse }: Props) {
   const chartData = data.map((row) => ({
     ...row,
-    weight: row.weight ?? undefined,
-    ma7: row.ma7 ?? undefined,
+    actual: row.actual ?? undefined,
+    target: row.target ?? undefined,
   }));
 
-  const hasWeight = data.some((r) => r.weight != null);
-  if (!hasWeight) return null;
+  const points = data.filter((r) => r.actual != null || r.target != null).length;
+  if (points === 0) return null;
+  if (!allowSparse && points < 2) return null;
 
   return (
     <div className="h-52 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+          <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
           <XAxis
             dataKey="label"
             tick={{ fill: "#a1a1aa", fontSize: 10 }}
@@ -45,11 +48,10 @@ export function WeightTrendChart({ data }: Props) {
             tickLine={false}
           />
           <YAxis
-            width={36}
+            width={40}
             tick={{ fill: "#a1a1aa", fontSize: 10 }}
             axisLine={false}
             tickLine={false}
-            domain={["dataMin - 0.4", "dataMax + 0.4"]}
           />
           <Tooltip
             contentStyle={{
@@ -61,36 +63,24 @@ export function WeightTrendChart({ data }: Props) {
             labelFormatter={(_, payload) =>
               payload?.[0]?.payload?.date ? String(payload[0].payload.date) : ""
             }
-            formatter={(value, name) => {
-              const n = typeof value === "number" ? value : Number(value);
-              const label = Number.isFinite(n) ? n.toFixed(1) : "—";
-              const suffix = name === "7d avg" ? " kg (avg)" : " kg";
-              return [`${label}${suffix}`, name];
-            }}
+            formatter={(value, name) => [
+              typeof value === "number" ? value.toLocaleString() : String(value ?? ""),
+              String(name),
+            ]}
           />
           <Legend
             wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }}
             formatter={(v) => <span className="text-zinc-400">{v}</span>}
           />
+          <Bar dataKey="actual" name="Actual" fill="#22d3ee" radius={[4, 4, 0, 0]} maxBarSize={26} />
           <Line
             type="monotone"
-            dataKey="weight"
-            name="Weight"
-            stroke="#34d399"
+            dataKey="target"
+            name="Target"
+            stroke="#fbbf24"
             strokeWidth={2}
-            dot={{ r: 3, fill: "#34d399" }}
+            dot={{ r: 2, fill: "#fbbf24" }}
             connectNulls
-            activeDot={{ r: 5 }}
-          />
-          <Line
-            type="monotone"
-            dataKey="ma7"
-            name="7d avg"
-            stroke="#a78bfa"
-            strokeWidth={2}
-            dot={false}
-            connectNulls
-            strokeDasharray="4 4"
           />
         </ComposedChart>
       </ResponsiveContainer>

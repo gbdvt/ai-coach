@@ -1,5 +1,15 @@
 -- Hybrid Coach: daily_logs (no auth MVP)
 -- Run in Supabase SQL Editor. Anon key is used from the app; RLS is open — OK for local/single-user only.
+--
+-- If the table was created earlier with user_id → auth.users, drop that FK so the
+-- single-tenant UUID (see src/lib/tenant.ts) can be used without a real auth user.
+do $hc$
+begin
+  if to_regclass('public.daily_logs') is not null then
+    alter table public.daily_logs drop constraint if exists daily_logs_user_id_fkey;
+  end if;
+end;
+$hc$;
 
 create table if not exists public.daily_logs (
   id uuid primary key default gen_random_uuid(),
@@ -21,9 +31,6 @@ create table if not exists public.daily_logs (
   updated_at timestamptz not null default now(),
   unique (user_id, date)
 );
-
--- If you already created the table with a foreign key to auth.users, run:
--- alter table public.daily_logs drop constraint if exists daily_logs_user_id_fkey;
 
 create index if not exists daily_logs_user_id_date_idx on public.daily_logs (user_id, date desc);
 

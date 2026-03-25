@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-export type DayStripItem = { date: string; label: string; logged: boolean };
+export type DayStripItem = { date: string; label: string; logged: boolean; isToday?: boolean };
 
 type Props = {
   days: DayStripItem[];
@@ -17,9 +17,11 @@ export function DayStrip({ days }: Props) {
           key={d.date}
           href={`/log?date=${d.date}`}
           className={`flex min-w-[2.25rem] flex-col items-center rounded-lg px-1 py-2 text-center transition ring-1 ${
-            d.logged
-              ? "bg-emerald-500/15 ring-emerald-500/40 text-emerald-200"
-              : "bg-zinc-950/50 ring-zinc-800 text-zinc-500 hover:text-zinc-300"
+            d.isToday
+              ? "bg-cyan-500/15 ring-cyan-400/50 text-cyan-100"
+              : d.logged
+                ? "bg-emerald-500/15 ring-emerald-500/40 text-emerald-200"
+                : "bg-zinc-950/50 ring-zinc-800 text-zinc-500 hover:text-zinc-300"
           }`}
         >
           <span className="text-[9px] font-medium uppercase tracking-tight">
