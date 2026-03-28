@@ -64,6 +64,55 @@ drop policy if exists "coach_settings_all" on public.coach_settings;
 
 create policy "coach_settings_all" on public.coach_settings for all using (true) with check (true);
 
+alter table public.coach_settings add column if not exists display_name text default 'Athlete';
+alter table public.coach_settings add column if not exists training_focus text default '';
+alter table public.coach_settings add column if not exists nutrition_focus text default '';
+alter table public.coach_settings add column if not exists phase_note text default '';
+
+-- Coach chat (structured DB truth; daily_logs + log_events still authoritative for metrics)
+create table if not exists public.coach_chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  log_date date not null,
+  role text not null,
+  content text not null,
+  meta jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  constraint coach_chat_role_check check (role in ('user', 'assistant'))
+);
+
+create index if not exists coach_chat_user_date_created_idx
+  on public.coach_chat_messages (user_id, log_date, created_at);
+
+alter table public.coach_chat_messages enable row level security;
+
+drop policy if exists "coach_chat_select" on public.coach_chat_messages;
+drop policy if exists "coach_chat_insert" on public.coach_chat_messages;
+drop policy if exists "coach_chat_update" on public.coach_chat_messages;
+drop policy if exists "coach_chat_delete" on public.coach_chat_messages;
+
+create policy "coach_chat_select" on public.coach_chat_messages for select using (true);
+create policy "coach_chat_insert" on public.coach_chat_messages for insert with check (true);
+create policy "coach_chat_update" on public.coach_chat_messages for update using (true) with check (true);
+create policy "coach_chat_delete" on public.coach_chat_messages for delete using (true);
+
+-- One automated daily brief per user per day (prevents duplicate inserts under concurrent requests)
+with ranked as (
+  select id,
+    row_number() over (
+      partition by user_id, log_date
+      order by created_at asc
+    ) as rn
+  from public.coach_chat_messages
+  where coalesce(meta->>'kind', '') = 'daily_opening'
+)
+delete from public.coach_chat_messages c
+where c.id in (select id from ranked where rn > 1);
+
+create unique index if not exists coach_chat_daily_opening_one_per_day
+  on public.coach_chat_messages (user_id, log_date)
+  where coalesce(meta->>'kind', '') = 'daily_opening';
+
 -- Quick-log events (natural language capture); `daily_logs` is derived via app sync
 create table if not exists public.log_events (
   id uuid primary key default gen_random_uuid(),
